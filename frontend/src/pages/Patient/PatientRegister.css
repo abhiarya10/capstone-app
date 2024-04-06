@@ -1,0 +1,104 @@
+.patient-register-body{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(to right, rgb(146, 21, 77),rgb(252, 113, 175));
+    color: aliceblue;
+
+    .reg-btn{
+        padding: 10px 30px;
+        border-radius: 5px;
+        border: none;
+        color: aliceblue;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 55%;
+        margin-top: 0px;
+        background-color: rgb(33, 170, 177);
+        box-shadow: 0px 0px 10px rgb(7, 41, 43);
+    }
+}
+.register-container{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-evenly;
+    width: 40%;
+    padding: 20px 10px;
+    background-color: #00000044;
+    border-radius: 5px;
+    box-shadow: 0px 0px 10px black;
+    border-radius: 5px;
+    position:relative;
+}
+.register-container .msg-text{
+    position: absolute;
+    top: 30px;
+    right: 230px;
+    font-size: 20px;
+    color: red;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    
+}
+
+.register-sec-div{
+    width: 90%;
+    height: 70%;
+}
+.create-acc-text{
+    font-size: 25px;
+    padding: 0px;
+    font-family:'Times New Roman', Times, serif;
+    color: aqua;
+    margin-bottom: 10px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+.register-sec-div .form-div{
+    width: 100%;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content:space-between;
+    align-items: center;
+}
+.first-last-name-div{
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 15px;
+}
+.label-input-div{
+    width: 49%;
+    display: flex;
+    flex-direction: column;
+}
+.label-input-div input{
+    padding: 14px;
+    background-color: rgba(245, 245, 245, 0.913);
+    border: 1px solid black;
+    border-radius: 5px;
+}
+.btn-div-createAcc{
+    width: 100%;
+    margin-top: 10px;
+    text-align: center;
+}
+
+.acc-login-div{
+    margin-top: 20px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    
+}
+.login-link{
+    text-decoration: none;
+    color: rgb(195, 248, 248);
+    height: 100%;
+    padding-left: 10px;
+}

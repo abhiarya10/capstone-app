@@ -1,0 +1,79 @@
+.patient-login-main-body{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(to right, rgb(146, 21, 77),rgb(252, 113, 175));
+    color: aliceblue;
+    position: relative;
+
+    button{
+        padding: 10px 30px;
+        border-radius: 5px;
+        border: none;
+        color: aliceblue;
+        font-size: 16px;
+        font-weight: 600;
+        margin-top: 25px;
+        cursor: pointer;
+        background-color: rgb(33, 170, 177);
+        box-shadow: 0px 0px 10px rgb(7, 41, 43);
+    }
+}
+.login-container{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 28%;
+    height: max-content;
+    padding: 20px 0px;
+    background-color: #00000044;
+    border-radius: 5px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0px 0px 10px black;
+}
+.login-header{
+    font-size: 25px;
+    padding: 0px;
+    font-family:'Times New Roman', Times, serif;
+    color: aqua;
+    margin-bottom: 20px;
+}
+.login-container form{
+    display: flex;
+    flex-direction: column;
+    width: 80%;
+}
+.login-container input{
+    padding: 14px 12px;
+    border: 1px solid black;
+    border-radius: 5px;
+    margin-top: 3px;
+    margin-bottom: 10px;
+    background-color: rgba(245, 245, 245, 0.913);
+}
+.forgot-pass{
+    margin-top: 5px;
+}
+
+.new-user-register-div{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 20px;
+}
+.new-user{
+    font-size: 16px;
+    color: aliceblue;
+    margin-right: 10px;
+}
+.reg-link{
+    text-decoration: none;
+    color: rgb(195, 248, 248);
+}
+.msg-text{
+    font-size: 23px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    position: absolute;
+    top: 60px;
+}

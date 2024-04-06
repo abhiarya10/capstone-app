@@ -1,0 +1,53 @@
+.patient-detail-body{
+    background: linear-gradient(to right, rgb(16, 16, 90), blue);
+    min-height: 100vh;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    .detail-container{
+        background-color: #E7E7EBdd;
+        display: flex;
+        flex-direction: row;
+        width: 90%;
+        padding: 10px;
+        margin-top: 10px;
+        border-radius: 5px;
+
+        .patient-info{
+            width: 25%;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 30px;
+            border-right: 1px solid black;
+
+            h1{
+                margin-bottom: 10px;
+            }
+
+            p{
+                font-size: 18px;
+                font-family: Georgia, 'Times New Roman', Times, serif;
+                margin: 10px 0px;
+                border-bottom: 1px solid black;
+                padding-bottom: 5px;
+            }
+        }
+
+        .encrypted-container{
+            width: 75%;
+            padding: 20px 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 75vh;
+            
+
+            h1{
+                margin-bottom: 20px;
+            }
+            
+        }
+    }
+}

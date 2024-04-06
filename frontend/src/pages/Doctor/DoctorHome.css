@@ -1,0 +1,46 @@
+.doc-home-body{
+    background: linear-gradient(to right, rgb(16, 16, 90), blue);
+    min-height: 100vh;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.doc-name-container{
+    background-color: transparent;
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+
+    p{
+        background-color: aliceblue;
+        width: max-content;
+        padding: 15px 30px;
+        border-radius: 5px;
+        color: black;
+    }
+}
+
+.patient-list-container{
+    background-color: aliceblue;
+    color: black;
+    min-height: 80vh;
+    margin-top: 10px;
+    border-radius: 10px;
+    width: 90%;
+    padding: 10px;
+
+    p{
+        text-align: center;
+        font-size: 22px;
+        font-family: Georgia, 'Times New Roman', Times, serif;
+    }
+}
+.all-patients{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 10px;
+}
+
