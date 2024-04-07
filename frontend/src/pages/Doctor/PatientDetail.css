@@ -47,6 +47,34 @@
             h1{
                 margin-bottom: 20px;
             }
+
+            .img-div{
+                background-color: white;
+                border-radius: 5px;
+                padding: 10px;
+                box-shadow: 0px 0px 10px rgb(71, 71, 71);
+
+                img{
+                    width: 200px;
+                    height: 150px;
+                    border-radius: 5px 5px 0px 0px;
+                }
+                button{
+                    width: 100%;
+                    display: block;
+                    padding: 10px 20px;
+                    border: 1px solid black;
+                    border-radius: 5px;
+                    margin-top: 5px;
+                    font-size: 15px;
+                    transition: 0.3s ease-in-out;
+                }
+                button:hover{
+                    cursor: pointer;
+                    background-color: black;
+                    color: white
+                }
+            }
             
         }
     }

@@ -17,42 +17,31 @@ function DoctorDetail() {
     e.preventDefault();
     const doctorName = doctorGlobal.fname + " " + doctorGlobal.lname;
 
-    if (!selectedFile) {
-      console.log("No file selected");
-      return;
-    }
+    // Create FormData object
+    const formData = new FormData();
+    formData.append("message", selectedFile);
+    formData.append("pName", globalLogIn.username);
+    formData.append("pEmail", globalLogIn.email);
+    formData.append("p_age", globalLogIn.age);
+    formData.append("p_gender", globalLogIn.gender);
+    formData.append("docName", doctorName);
+    formData.append("docEmail", doctorGlobal.email);
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      // Send the base64-encoded file as the message
-      const messageData = {
-        message: reader.result, // Use reader.result which contains the base64 string
-        pName: globalLogIn.username,
-        pEmail: globalLogIn.email,
-        docName: doctorName,
-        docEmail: doctorGlobal.email,
-      };
-      try {
-        const response = await fetch("http://127.0.0.1:5000/sendMessage", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(messageData),
-        });
-        if (!response.ok) {
-          const data = await response.json();
-          console.log(data);
-        } else {
-          const data = await response.json();
-          console.log(data);
-        }
-      } catch (error) {
-        console.log("Error occurred while sending message to doctor", error);
+    try {
+      const response = await fetch("http://127.0.0.1:5000/sendMessage", {
+        method: "POST",
+        body: formData, // Send FormData instead of JSON.stringify
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        console.log(data);
+      } else {
+        const data = await response.json();
+        console.log(data);
       }
-    };
-
-    reader.readAsDataURL(selectedFile);
+    } catch (error) {
+      console.log("Error occurred while sending message to doctor", error);
+    }
   }
 
   return (

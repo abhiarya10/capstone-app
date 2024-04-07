@@ -20,8 +20,10 @@
             display: flex;
             flex-direction: column;
             padding: 20px 30px;
+            border-radius: 5px;
             border-right: 1px solid black;
             background-color: #E7E7EBdd;
+            box-shadow: 0px 0px 10px rgb(48, 47, 47);
             height: max-content;
 
             h1{
@@ -77,24 +79,26 @@
                 padding: 30px 0px 30px 30px;
                 border-radius: 5px;
                 border: 1px solid white;
+                box-shadow: 0px 0px 10px rgb(48, 47, 47);
                 
 
                 .file-div{
-                    background-color: white;
+                    background-color: rgb(237, 235, 235);
                     padding: 10px;
                     width: 200px;
                     height: 150px;
                     text-align: center;
-                    border-radius: 5px 5px 0px 0px;
+                    border-radius: 5px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
+                    box-shadow: 0px 0px 10px rgb(123, 123, 123);
                 }
 
                 img{
                     width:100%;
                     height: 100%;
-                    border-radius: 3px 3px 0px 0px;
+                    border-radius: 3px;
                 }
                 .input-div{
                     display: flex;
@@ -102,7 +106,6 @@
                     align-items: center;
                     justify-content: center;
                     width: 70%;
-                    background-color: yellow;
                     box-sizing: border-box;
                 }
     
@@ -121,6 +124,7 @@
                     margin-top: 10px;
                     border-radius: 5px;
                     background-color: transparent;
+                    box-shadow: 0px 0px 10px rgb(179, 177, 177);
                 }
                 button:hover{
                     background-color: black;

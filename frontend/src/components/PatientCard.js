@@ -3,11 +3,11 @@ import "./PatientCard.css";
 import { Link } from "react-router-dom";
 import { patientDetailContext } from "../GlobalState/PatientDetailGlobal";
 
-function PatientCard({ patient }) {
+function PatientCard({ message }) {
   const { setPatientGlobal } = useContext(patientDetailContext);
 
   function handlePatientClick() {
-    setPatientGlobal(patient);
+    setPatientGlobal(message);
   }
 
   return (
@@ -17,10 +17,10 @@ function PatientCard({ patient }) {
       onClick={handlePatientClick}
     >
       <div className="patient-card-div">
-        <p>{patient.name}</p>
-        <p>{patient.age}</p>
-        <p>{patient.gender}</p>
-        <p>{patient.email}</p>
+        <p>{message.patientName}</p>
+        <p>{message.patientAge}</p>
+        <p>{message.patientGender}</p>
+        <p>{message.patientEmail}</p>
       </div>
     </Link>
   );

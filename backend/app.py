@@ -1,5 +1,7 @@
-from flask import Flask, request, jsonify  # Flask for creating the web application
-from flask_sqlalchemy import SQLAlchemy  # SQLAlchemy for database interaction
+from flask import Flask, request, jsonify, url_for  
+from werkzeug.utils import secure_filename
+import os
+from flask_sqlalchemy import SQLAlchemy  
 from flask_marshmallow import Marshmallow
 import base64
 from datetime import datetime
@@ -7,7 +9,7 @@ from flask_cors import CORS
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:''@localhost/capstone'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -15,6 +17,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
 app.app_context().push()
+
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 
 # Define the UserRegisterd model for database
@@ -54,16 +59,20 @@ class PatientMessage(db.Model):
     msg_id = db.Column(db.Integer, primary_key=True)
     patientName = db.Column(db.String(100), nullable=False)
     patientEmail = db.Column(db.String(100), nullable=False)
-    encrypted_Message = db.Column(db.BLOB, nullable=False)
+    patientAge = db.Column(db.Integer, nullable=False)
+    patientGender = db.Column(db.String(100), nullable=False)
+    image_path = db.Column(db.String(255), nullable=True)
     encrypted_key = db.Column(db.String(100), nullable=False)
     doctorName = db.Column(db.String(100), nullable=False)
     doctorEmail = db.Column(db.String(100), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, patientName,patientEmail, encrypted_Message, encrypted_Key, doctorName , doctorEmail ):
+    def __init__(self, patientName, patientEmail, patientAge, patientGender, image_path, encrypted_Key, doctorName , doctorEmail ):
         self.patientName = patientName
         self.patientEmail = patientEmail
-        self.encrypted_Message = encrypted_Message
+        self.patientAge = patientAge
+        self.patientGender = patientGender
+        self.image_path = image_path
         self.encrypted_Key = encrypted_Key
         self.doctorName = doctorName
         self.doctorEmail = doctorEmail
@@ -79,27 +88,62 @@ class PatientRegisteredSchema(ma.Schema):
         fields = ('id','username','age', 'gender','email', 'password', 'date_registered')
 patient_Registered_schema = PatientRegisteredSchema()
 
+class PatientMessageSchema(ma.Schema):
+    class Meta:
+        fields = ('msg_id','patientName','patientEmail', 'patientAge','patientGender','image_path','encrypted_key', 'doctorName','doctorEmail', 'date_registered')
+patient_Message_schemas = PatientMessageSchema(many=True)
+
 @app.route('/fetchDoctors', methods=['GET'])
 def fetchDoctors():
     allDoctors = DoctorRegisterd.query.all()
     return doctor_Registered_schemas.jsonify(allDoctors)
 
+@app.route('/fetchPatient', methods=['POST'])
+def fetchPatient():
+    doc_email = request.json.get('doc_email')
+    allPatients = PatientMessage.query.filter_by(doctorEmail=doc_email).all()
+    
+    serialized_data = patient_Message_schemas.dump(allPatients)
+    
+    # Update the image_path for each patient record
+    for patient in serialized_data:
+        if patient['image_path']:
+            # Replace backslashes with forward slashes
+            patient['image_path'] = patient['image_path'].replace('\\', '/')
+
+    return jsonify(serialized_data)
+
+
+
+
+
 @app.route('/sendMessage', methods=['POST'])
 def saveMessage():
-    p_name = request.json.get('pName')
-    p_email = request.json.get('pEmail')
-    p_message_base64 = request.json.get('message')
-    doc_name = request.json.get('docName')
-    doc_email = request.json.get('docEmail')
-    key = "key"
-
-    # Decode base64 string to get binary image data
-    p_message_binary = base64.b64decode(p_message_base64)
-
-    new_message = PatientMessage(patientName=p_name, patientEmail=p_email,encrypted_Message=p_message_binary, encrypted_Key=key, doctorName=doc_name, doctorEmail=doc_email)
+    p_name = request.form.get('pName')
+    p_email = request.form.get('pEmail')
+    p_age = request.form.get('p_age')
+    p_gender = request.form.get('p_gender') 
+    doc_name = request.form.get('docName')
+    doc_email = request.form.get('docEmail')
+    
+    # Processing the uploaded file
+    selectedFile = request.files.get('message')
+    if selectedFile:
+        # Generate a unique filename for the uploaded image
+        filename = secure_filename(selectedFile.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Save the image to the uploads folder
+        selectedFile.save(filepath)
+    else:
+        filepath = None  # If no file is uploaded
+    
+    new_message = PatientMessage(patientName=p_name, patientEmail=p_email,patientAge=p_age, patientGender=p_gender, encrypted_Key="key",doctorName=doc_name, doctorEmail=doc_email, image_path=filepath 
+    )
+    
     db.session.add(new_message)
     db.session.commit()
-    return jsonify({"message":"Message posted successfully"})
+    return jsonify({"message": "Message posted successfully"})
 
 
 @app.route('/doctorRegistration', methods=['POST'])

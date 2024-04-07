@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import "./PatientRegister.css";
 
 function PatientRegister() {
@@ -12,6 +12,7 @@ function PatientRegister() {
     confirmPassword: "",
   });
   const [msg, setMsg] = useState("");
+  const navigate = useNavigate();
 
   function registerInputHandler(e) {
     const { name, value } = e.target;
@@ -49,6 +50,15 @@ function PatientRegister() {
       } else {
         const data = await response.json();
         console.log(data);
+        setMsg(data.message);
+
+        setTimeout(() => {
+          setMsg("Redirecting to Login page");
+        }, 2000);
+
+        setTimeout(() => {
+          navigate("/patientLogin");
+        }, 4000);
       }
     } catch (error) {
       console.log("Error while patient registration", error);
@@ -57,12 +67,11 @@ function PatientRegister() {
 
   return (
     <div className="patient-register-body">
+      <p className="msg-text">{msg}</p>
       <div className="register-container">
-        <p className="msg-text">{msg}</p>
-
         <div className="register-sec-div">
           <p className="create-acc-text">Create An Account</p>
-          <form className="form-div" onClick={registerHandler}>
+          <form className="form-div" onSubmit={registerHandler}>
             <div className="first-last-name-div">
               <div className="label-input-div">
                 <label>Patient Name</label>
