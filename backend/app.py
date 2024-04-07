@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for  
+from flask import Flask, request, jsonify, url_for,send_file  
 from werkzeug.utils import secure_filename
 import os
 from flask_sqlalchemy import SQLAlchemy  
@@ -6,6 +6,13 @@ from flask_marshmallow import Marshmallow
 import base64
 from datetime import datetime
 from flask_cors import CORS
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import utils, ec
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumbers
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import serialization
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -29,12 +36,16 @@ class DoctorRegisterd(db.Model):
     lname = db.Column(db.String(100), nullable=False)
     specialization = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), nullable=False)
+    public_key = db.Column(db.Text, nullable=True)
+    private_key = db.Column(db.Text, nullable=True)
     password = db.Column(db.String(20), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, fname,lname, specialization, email, password):
+    def __init__(self, fname,lname, specialization, email, public_key, private_key, password):
         self.fname = fname
         self.lname = lname
+        self.public_key = public_key
+        self.private_key = private_key
         self.specialization = specialization
         self.email = email
         self.password = password
@@ -62,24 +73,22 @@ class PatientMessage(db.Model):
     patientAge = db.Column(db.Integer, nullable=False)
     patientGender = db.Column(db.String(100), nullable=False)
     image_path = db.Column(db.String(255), nullable=True)
-    encrypted_key = db.Column(db.String(100), nullable=False)
     doctorName = db.Column(db.String(100), nullable=False)
     doctorEmail = db.Column(db.String(100), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, patientName, patientEmail, patientAge, patientGender, image_path, encrypted_Key, doctorName , doctorEmail ):
+    def __init__(self, patientName, patientEmail, patientAge, patientGender, image_path, doctorName , doctorEmail ):
         self.patientName = patientName
         self.patientEmail = patientEmail
         self.patientAge = patientAge
         self.patientGender = patientGender
         self.image_path = image_path
-        self.encrypted_Key = encrypted_Key
         self.doctorName = doctorName
         self.doctorEmail = doctorEmail
 
 class DoctorRegisteredSchema(ma.Schema):
     class Meta:
-        fields = ('id','fname','lname','specialization','email', 'password', 'date_registered')
+        fields = ('id','fname','lname','specialization','email', 'public_key','private_key','password', 'date_registered')
 doctor_Registered_schema = DoctorRegisteredSchema()
 doctor_Registered_schemas = DoctorRegisteredSchema(many=True)
 
@@ -90,7 +99,7 @@ patient_Registered_schema = PatientRegisteredSchema()
 
 class PatientMessageSchema(ma.Schema):
     class Meta:
-        fields = ('msg_id','patientName','patientEmail', 'patientAge','patientGender','image_path','encrypted_key', 'doctorName','doctorEmail', 'date_registered')
+        fields = ('msg_id','patientName','patientEmail', 'patientAge','patientGender','image_path', 'doctorName','doctorEmail', 'date_registered')
 patient_Message_schemas = PatientMessageSchema(many=True)
 
 @app.route('/fetchDoctors', methods=['GET'])
@@ -102,18 +111,74 @@ def fetchDoctors():
 def fetchPatient():
     doc_email = request.json.get('doc_email')
     allPatients = PatientMessage.query.filter_by(doctorEmail=doc_email).all()
-    
-    serialized_data = patient_Message_schemas.dump(allPatients)
-    
-    # Update the image_path for each patient record
-    for patient in serialized_data:
-        if patient['image_path']:
-            # Replace backslashes with forward slashes
-            patient['image_path'] = patient['image_path'].replace('\\', '/')
 
-    return jsonify(serialized_data)
+    decrypted_data = []
 
+    for patient in allPatients:
+        # Decrypt the image if it exists
+        if patient.image_path:
+            try:
+                with open(patient.image_path, 'rb') as f:
+                    ciphertext = f.read()
 
+                # Retrieve the doctor's private key from the database
+                doctor = DoctorRegisterd.query.filter_by(email=doc_email).first()
+                if doctor:
+                    private_key_pem = doctor.private_key.encode('utf-8')
+                    private_key = serialization.load_pem_private_key(private_key_pem, password=None, backend=default_backend())
+
+                    # Retrieve the doctor's public key from the database
+                    public_key_pem = doctor.public_key.encode('utf-8')
+                    public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
+
+                    # Perform ECDH key exchange to derive the shared secret
+                    shared_key = private_key.exchange(ec.ECDH(), public_key)
+
+                    # Use HKDF to derive encryption and authentication keys from the shared secret
+                    derived_key = HKDF(
+                        algorithm=hashes.SHA256(),
+                        length=64,
+                        salt=None,
+                        info=b'',
+                        backend=default_backend()
+                    ).derive(shared_key)
+
+                    encryption_key = derived_key[:32]
+
+                    # Separate the IV, encrypted data, and tag
+                    iv = ciphertext[:12]
+                    encrypted_data = ciphertext[12:-16]
+                    tag = ciphertext[-16:]
+
+                    # Decrypt the message (image) using AES-GCM
+                    cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv, tag), backend=default_backend())
+                    decryptor = cipher.decryptor()
+                    decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
+
+                    # Generate a unique filename for the decrypted image
+                    decrypted_filename = os.path.splitext(os.path.basename(patient.image_path))[0] + '_decrypted' + os.path.splitext(patient.image_path)[1]
+                    decrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], decrypted_filename)
+
+                    # Save the decrypted message (image) in the uploads folder
+                    with open(decrypted_filepath, 'wb') as f:
+                        f.write(decrypted_data_temp)
+
+                    # Append the decrypted patient data to the list
+                    decrypted_data.append({
+                        'msg_id': patient.msg_id,
+                        'patientName': patient.patientName,
+                        'patientEmail': patient.patientEmail,
+                        'patientAge': patient.patientAge,
+                        'patientGender': patient.patientGender,
+                        'image_path': decrypted_filepath,
+                        'doctorName': patient.doctorName,
+                        'doctorEmail': patient.doctorEmail,
+                        'date_registered': patient.date_registered.strftime("%Y-%m-%d %H:%M:%S")
+                    })
+            except Exception as e:
+                return jsonify({"error": str(e)})
+
+    return jsonify(decrypted_data)
 
 
 
@@ -129,21 +194,65 @@ def saveMessage():
     # Processing the uploaded file
     selectedFile = request.files.get('message')
     if selectedFile:
-        # Generate a unique filename for the uploaded image
-        filename = secure_filename(selectedFile.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        # Save the image to the uploads folder
-        selectedFile.save(filepath)
+        # Retrieve the doctor's private key from the database
+        doctor = DoctorRegisterd.query.filter_by(email=doc_email).first()
+        if doctor:
+            private_key_pem = doctor.private_key.encode('utf-8')
+            try:
+                # Load the doctor's private key
+                private_key = serialization.load_pem_private_key(private_key_pem, password=None, backend=default_backend())
+                
+                # Retrieve the doctor's public key from the database
+                public_key_pem = doctor.public_key.encode('utf-8')
+                public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
+                
+                # Perform ECDH key exchange to derive the shared secret
+                shared_key = private_key.exchange(ec.ECDH(), public_key)
+                
+                # Use HKDF to derive encryption and authentication keys from the shared secret
+                derived_key = HKDF(
+                    algorithm=hashes.SHA256(),
+                    length=64,
+                    salt=None,
+                    info=b'',
+                    backend=default_backend()
+                ).derive(shared_key)
+                
+                encryption_key = derived_key[:32]
+                authentication_key = derived_key[32:]
+                
+                # Encrypt the message (image) using AES-GCM
+                iv = os.urandom(12)
+                cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv), backend=default_backend())
+                encryptor = cipher.encryptor()
+                encrypted_data = encryptor.update(selectedFile.read()) + encryptor.finalize()
+                tag = encryptor.tag
+                
+                # Concatenate IV and encrypted data
+                ciphertext = iv + encrypted_data + tag
+                
+                # Generate a unique filename for the encrypted image
+                filename = secure_filename(selectedFile.filename)
+                encrypted_filename = os.path.splitext(filename)[0] + '_encrypted' + os.path.splitext(filename)[1]
+                encrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], encrypted_filename)
+                
+                # Save the encrypted message (image) in the uploads folder
+                with open(encrypted_filepath, 'wb') as f:
+                    f.write(ciphertext)
+                    
+                # Save the path of the encrypted message in the database
+                new_message = PatientMessage(patientName=p_name, patientEmail=p_email, patientAge=p_age, patientGender=p_gender, doctorName=doc_name, doctorEmail=doc_email, image_path=encrypted_filepath)
+                db.session.add(new_message)
+                db.session.commit()
+                return jsonify({"message": "Message posted successfully"})
+            except Exception as e:
+                return jsonify({"error": str(e)})
+        else:
+            return jsonify({"error": "Doctor not found"})
     else:
-        filepath = None  # If no file is uploaded
-    
-    new_message = PatientMessage(patientName=p_name, patientEmail=p_email,patientAge=p_age, patientGender=p_gender, encrypted_Key="key",doctorName=doc_name, doctorEmail=doc_email, image_path=filepath 
-    )
-    
-    db.session.add(new_message)
-    db.session.commit()
-    return jsonify({"message": "Message posted successfully"})
+        return jsonify({"error": "No file uploaded"})
+
+
 
 
 @app.route('/doctorRegistration', methods=['POST'])
@@ -169,8 +278,23 @@ def doctorRegister():
     doctor = DoctorRegisterd.query.filter_by(email=email).first()
     if doctor:
         return jsonify({"error":"Email has already been registered"})
+    
+    # Generate ECC key pair
+    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+    public_key = private_key.public_key()
+
+    # Serialize the keys
+    private_key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    public_key_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
         
-    new_doctor = DoctorRegisterd(fname=fname,lname=lname, specialization=specialization, email=email, password=password)
+    new_doctor = DoctorRegisterd(fname=fname,lname=lname, specialization=specialization, email=email, public_key=public_key_bytes.decode('utf-8'), private_key=private_key_bytes.decode('utf-8'), password=password)
 
     db.session.add(new_doctor)
     db.session.commit()
