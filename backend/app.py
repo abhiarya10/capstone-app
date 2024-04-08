@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, url_for,send_file, Response  
+from time import perf_counter
 from werkzeug.utils import secure_filename
 import os
 from flask_sqlalchemy import SQLAlchemy  
@@ -56,14 +57,16 @@ class PatientRegisterd(db.Model):
     gender = db.Column(db.String(100), nullable=False)
     age = db.Column(db.Integer, nullable=False)
     email = db.Column(db.String(100), nullable=False)
+    aes_key = db.Column(db.Text, nullable=True)
     password = db.Column(db.String(20), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, username, gender, age, email, password):
+    def __init__(self, username, gender, age, email, aes_key, password):
         self.username = username
         self.gender = gender
         self.age = age
         self.email = email
+        self.aes_key = aes_key
         self.password = password
 
 class PatientMessage(db.Model):
@@ -94,7 +97,7 @@ doctor_Registered_schemas = DoctorRegisteredSchema(many=True)
 
 class PatientRegisteredSchema(ma.Schema):
     class Meta:
-        fields = ('id','username','age', 'gender','email', 'password', 'date_registered')
+        fields = ('id','username','age', 'gender','email', 'aes_key','password', 'date_registered')
 patient_Registered_schema = PatientRegisteredSchema()
 
 class PatientMessageSchema(ma.Schema):
@@ -122,9 +125,6 @@ def fetchPatient():
 
     return jsonify(serialized_data)
 
-import os
-
-import os
 
 @app.route('/decryptMessage', methods=['POST'])
 def decryptMessage():
@@ -174,8 +174,12 @@ def decryptMessage():
 
         cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv, tag), backend=default_backend())
         decryptor = cipher.decryptor()
+        start_time = perf_counter()  # Record the start time
         decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
-
+        end_time = perf_counter()  # Record the end time
+        time_taken = end_time - start_time
+        time_taken_decimal = '{:.8f}'.format(time_taken)
+        print("Time taken for ECC decryption:", time_taken_decimal, "seconds")
         decrypted_filename = os.path.splitext(os.path.basename(patient_message.image_path))[0] + '_decrypted' + os.path.splitext(patient_message.image_path)[1]
         decrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], decrypted_filename)
 
@@ -200,38 +204,22 @@ def saveMessage():
     # Processing the uploaded file
     selectedFile = request.files.get('message')
     if selectedFile:
-        # Retrieve the doctor's private key from the database
-        doctor = DoctorRegisterd.query.filter_by(email=doc_email).first()
-        if doctor:
-            private_key_pem = doctor.private_key.encode('utf-8')
+        # Retrieve the patient's AES key from the database
+        patient = PatientRegisterd.query.filter_by(email=p_email).first()
+        if patient and patient.aes_key:
+            aes_key_hex = patient.aes_key
+            aes_key = bytes.fromhex(aes_key_hex)
             try:
-                # Load the doctor's private key
-                private_key = serialization.load_pem_private_key(private_key_pem, password=None, backend=default_backend())
-                
-                # Retrieve the doctor's public key from the database
-                public_key_pem = doctor.public_key.encode('utf-8')
-                public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
-                
-                # Perform ECDH key exchange to derive the shared secret
-                shared_key = private_key.exchange(ec.ECDH(), public_key)
-                
-                # Use HKDF to derive encryption and authentication keys from the shared secret
-                derived_key = HKDF(
-                    algorithm=hashes.SHA256(),
-                    length=64,
-                    salt=None,
-                    info=b'',
-                    backend=default_backend()
-                ).derive(shared_key)
-                
-                encryption_key = derived_key[:32]
-                authentication_key = derived_key[32:]
-                
                 # Encrypt the message (image) using AES-GCM
                 iv = os.urandom(12)
-                cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv), backend=default_backend())
+                cipher = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend())
                 encryptor = cipher.encryptor()
+                start_time = perf_counter()  # Record the start time
                 encrypted_data = encryptor.update(selectedFile.read()) + encryptor.finalize()
+                end_time = perf_counter()  # Record the end time
+                time_taken = end_time - start_time
+                time_taken_decimal = '{:.8f}'.format(time_taken)
+                print("Time taken for AES encryption:", time_taken_decimal, "seconds")
                 tag = encryptor.tag
                 
                 # Concatenate IV and encrypted data
@@ -254,11 +242,9 @@ def saveMessage():
             except Exception as e:
                 return jsonify({"error": str(e)})
         else:
-            return jsonify({"error": "Doctor not found"})
+            return jsonify({"error": "Patient AES key not found or invalid"})
     else:
         return jsonify({"error": "No file uploaded"})
-
-
 
 
 @app.route('/doctorRegistration', methods=['POST'])
@@ -350,8 +336,14 @@ def patientRegister():
     patient = PatientRegisterd.query.filter_by(email=email).first()
     if patient:
         return jsonify({"error":"Email has already been registered"})
+    
+    # Generate a random AES key
+    aes_key = os.urandom(32)  # 256-bit key (32 bytes)
+
+    # Encode the AES key as a hexadecimal string for storage
+    aes_key_hex = aes_key.hex()
         
-    new_patient = PatientRegisterd(username=username,age=age,gender=gender, email=email, password=password)
+    new_patient = PatientRegisterd(username=username,age=age,gender=gender, email=email, aes_key=aes_key_hex, password=password)
 
     db.session.add(new_patient)
     db.session.commit()
