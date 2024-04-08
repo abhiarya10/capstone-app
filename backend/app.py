@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for,send_file  
+from flask import Flask, request, jsonify, url_for,send_file, Response  
 from werkzeug.utils import secure_filename
 import os
 from flask_sqlalchemy import SQLAlchemy  
@@ -112,75 +112,81 @@ def fetchPatient():
     doc_email = request.json.get('doc_email')
     allPatients = PatientMessage.query.filter_by(doctorEmail=doc_email).all()
 
-    decrypted_data = []
+    serialized_data = patient_Message_schemas.dump(allPatients)
 
-    for patient in allPatients:
-        # Decrypt the image if it exists
-        if patient.image_path:
-            try:
-                with open(patient.image_path, 'rb') as f:
-                    ciphertext = f.read()
+    # Update the image_path for each patient record
+    for patient in serialized_data:
+        if patient['image_path']:
+            # Replace backslashes with forward slashes
+            patient['image_path'] = patient['image_path'].replace('\\', '/')
 
-                # Retrieve the doctor's private key from the database
-                doctor = DoctorRegisterd.query.filter_by(email=doc_email).first()
-                if doctor:
-                    private_key_pem = doctor.private_key.encode('utf-8')
-                    private_key = serialization.load_pem_private_key(private_key_pem, password=None, backend=default_backend())
+    return jsonify(serialized_data)
 
-                    # Retrieve the doctor's public key from the database
-                    public_key_pem = doctor.public_key.encode('utf-8')
-                    public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
+import os
 
-                    # Perform ECDH key exchange to derive the shared secret
-                    shared_key = private_key.exchange(ec.ECDH(), public_key)
+import os
 
-                    # Use HKDF to derive encryption and authentication keys from the shared secret
-                    derived_key = HKDF(
-                        algorithm=hashes.SHA256(),
-                        length=64,
-                        salt=None,
-                        info=b'',
-                        backend=default_backend()
-                    ).derive(shared_key)
+@app.route('/decryptMessage', methods=['POST'])
+def decryptMessage():
+    msg_id = request.json.get('msg_id')
 
-                    encryption_key = derived_key[:32]
+    # Fetch the patient message using the provided msg_id
+    patient_message = PatientMessage.query.get(msg_id)
 
-                    # Separate the IV, encrypted data, and tag
-                    iv = ciphertext[:12]
-                    encrypted_data = ciphertext[12:-16]
-                    tag = ciphertext[-16:]
+    if not patient_message:
+        return jsonify({"error": "Message not found"})
 
-                    # Decrypt the message (image) using AES-GCM
-                    cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv, tag), backend=default_backend())
-                    decryptor = cipher.decryptor()
-                    decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
+    # Retrieve the doctor's email associated with the message
+    doctor_email = patient_message.doctorEmail
 
-                    # Generate a unique filename for the decrypted image
-                    decrypted_filename = os.path.splitext(os.path.basename(patient.image_path))[0] + '_decrypted' + os.path.splitext(patient.image_path)[1]
-                    decrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], decrypted_filename)
+    # Fetch the doctor's record from the database using the email
+    doctor = DoctorRegisterd.query.filter_by(email=doctor_email).first()
 
-                    # Save the decrypted message (image) in the uploads folder
-                    with open(decrypted_filepath, 'wb') as f:
-                        f.write(decrypted_data_temp)
+    if not doctor:
+        return jsonify({"error": "Doctor not found"})
 
-                    # Append the decrypted patient data to the list
-                    decrypted_data.append({
-                        'msg_id': patient.msg_id,
-                        'patientName': patient.patientName,
-                        'patientEmail': patient.patientEmail,
-                        'patientAge': patient.patientAge,
-                        'patientGender': patient.patientGender,
-                        'image_path': decrypted_filepath,
-                        'doctorName': patient.doctorName,
-                        'doctorEmail': patient.doctorEmail,
-                        'date_registered': patient.date_registered.strftime("%Y-%m-%d %H:%M:%S")
-                    })
-            except Exception as e:
-                return jsonify({"error": str(e)})
+    # Retrieve the doctor's private key and perform decryption
+    try:
+        with open(patient_message.image_path, 'rb') as f:
+            ciphertext = f.read()
 
-    return jsonify(decrypted_data)
+        private_key_pem = doctor.private_key.encode('utf-8')
+        private_key = serialization.load_pem_private_key(private_key_pem, password=None, backend=default_backend())
 
+        public_key_pem = doctor.public_key.encode('utf-8')
+        public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
 
+        shared_key = private_key.exchange(ec.ECDH(), public_key)
+
+        derived_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=64,
+            salt=None,
+            info=b'',
+            backend=default_backend()
+        ).derive(shared_key)
+
+        encryption_key = derived_key[:32]
+
+        iv = ciphertext[:12]
+        encrypted_data = ciphertext[12:-16]
+        tag = ciphertext[-16:]
+
+        cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv, tag), backend=default_backend())
+        decryptor = cipher.decryptor()
+        decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
+
+        decrypted_filename = os.path.splitext(os.path.basename(patient_message.image_path))[0] + '_decrypted' + os.path.splitext(patient_message.image_path)[1]
+        decrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], decrypted_filename)
+
+        with open(decrypted_filepath, 'wb') as f:
+            f.write(decrypted_data_temp)
+
+        # Return the decrypted image file as a response
+        return send_file(decrypted_filepath, as_attachment=True)
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.route('/sendMessage', methods=['POST'])
 def saveMessage():

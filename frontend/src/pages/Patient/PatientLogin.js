@@ -50,6 +50,7 @@ function PatientLogin() {
         setMsg(data.error);
       } else {
         const data = await response.json();
+        setMsg("Login Successful");
         console.log(data);
         setGlobalLogIn(data);
         setLoginData({

@@ -1,20 +1,20 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { PatientDetailProvider } from "./GlobalState/PatientDetailGlobal";
+import { PatientMessageProvider } from "./GlobalState/PatientMessageGlobal";
 import { DoctorDetailProvider } from "./GlobalState/DoctorDetailGlobal";
 import { LogInProvider } from "./GlobalState/LoggedInState";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
-    <PatientDetailProvider>
+    <PatientMessageProvider>
       <DoctorDetailProvider>
         <LogInProvider>
           <App />
         </LogInProvider>
       </DoctorDetailProvider>
-    </PatientDetailProvider>
+    </PatientMessageProvider>
   </React.StrictMode>
 );
 

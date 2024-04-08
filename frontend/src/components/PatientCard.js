@@ -1,13 +1,13 @@
 import React, { useContext } from "react";
 import "./PatientCard.css";
 import { Link } from "react-router-dom";
-import { patientDetailContext } from "../GlobalState/PatientDetailGlobal";
+import { patientMessageContext } from "../GlobalState/PatientMessageGlobal";
 
 function PatientCard({ message }) {
-  const { setPatientGlobal } = useContext(patientDetailContext);
+  const { setMessageGlobal } = useContext(patientMessageContext);
 
   function handlePatientClick() {
-    setPatientGlobal(message);
+    setMessageGlobal(message);
   }
 
   return (
