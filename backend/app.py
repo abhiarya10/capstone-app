@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, url_for,send_file, Response
 from time import perf_counter
 from werkzeug.utils import secure_filename
 import os
+import math
 from flask_sqlalchemy import SQLAlchemy  
 from flask_marshmallow import Marshmallow
 import base64
@@ -15,6 +16,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.asymmetric import padding
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -38,16 +41,16 @@ class DoctorRegisterd(db.Model):
     lname = db.Column(db.String(100), nullable=False)
     specialization = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), nullable=False)
-    public_key = db.Column(db.Text, nullable=True)
-    private_key = db.Column(db.Text, nullable=True)
+    ecc_public_key = db.Column(db.Text, nullable=True)
+    ecc_private_key = db.Column(db.Text, nullable=True)
     password = db.Column(db.String(20), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, fname,lname, specialization, email, public_key, private_key, password):
+    def __init__(self, fname,lname, specialization, email, ecc_public_key, ecc_private_key, password):
         self.fname = fname
         self.lname = lname
-        self.public_key = public_key
-        self.private_key = private_key
+        self.ecc_public_key = ecc_public_key
+        self.ecc_private_key = ecc_private_key
         self.specialization = specialization
         self.email = email
         self.password = password
@@ -58,15 +61,19 @@ class PatientRegisterd(db.Model):
     gender = db.Column(db.String(100), nullable=False)
     age = db.Column(db.Integer, nullable=False)
     email = db.Column(db.String(100), nullable=False)
+    ecc_public_key = db.Column(db.Text, nullable=True)
+    ecc_private_key = db.Column(db.Text, nullable=True)
     aes_key = db.Column(db.Text, nullable=True)
     password = db.Column(db.String(20), nullable=False)
     date_registered = db.Column(db.DateTime, default=datetime.utcnow)
 
-    def __init__(self, username, gender, age, email, aes_key, password):
+    def __init__(self, username, gender, age, email, ecc_public_key, ecc_private_key, aes_key, password):
         self.username = username
         self.gender = gender
         self.age = age
         self.email = email
+        self.ecc_public_key = ecc_public_key
+        self.ecc_private_key = ecc_private_key
         self.aes_key = aes_key
         self.password = password
 
@@ -92,13 +99,13 @@ class PatientMessage(db.Model):
 
 class DoctorRegisteredSchema(ma.Schema):
     class Meta:
-        fields = ('id','fname','lname','specialization','email', 'public_key','private_key','password', 'date_registered')
+        fields = ('id','fname','lname','specialization','email', 'ecc_public_key','ecc_private_key','password', 'date_registered')
 doctor_Registered_schema = DoctorRegisteredSchema()
 doctor_Registered_schemas = DoctorRegisteredSchema(many=True)
 
 class PatientRegisteredSchema(ma.Schema):
     class Meta:
-        fields = ('id','username','age', 'gender','email', 'aes_key','password', 'date_registered')
+        fields = ('id','username','age', 'gender','email', 'ecc_public_key','ecc_private_key','aes_key','password', 'date_registered')
 patient_Registered_schema = PatientRegisteredSchema()
 
 class PatientMessageSchema(ma.Schema):
@@ -126,95 +133,101 @@ def fetchPatient():
 
     return jsonify(serialized_data)
 
+# Function to decrypt data using AES-GCM
+def decrypt_data(ciphertext, decryption_key):
+    iv = ciphertext[:12]
+    encrypted_data = ciphertext[12:-16]
+    tag = ciphertext[-16:]
+    
+    cipher = Cipher(algorithms.AES(decryption_key), modes.GCM(iv, tag), backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
+    return decrypted_data_temp
+
+
+# Function to generate decryption key using ECDH and HKDF
+def generate_decryption_key(sender_public_key_pem, recipient_private_key_pem):
+    sender_public_key = serialization.load_pem_public_key(sender_public_key_pem, backend=default_backend())
+    recipient_private_key = serialization.load_pem_private_key(recipient_private_key_pem, password=None, backend=default_backend())
+    
+    shared_key = recipient_private_key.exchange(ec.ECDH(), sender_public_key)
+    decryption_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'',
+        backend=default_backend()
+    ).derive(shared_key)
+    
+    return decryption_key
 
 @app.route('/decryptMessage', methods=['POST'])
 def decryptMessage():
     msg_id = request.json.get('msg_id')
 
-    # Fetch the patient message using the provided msg_id
     patient_message = PatientMessage.query.get(msg_id)
-
     if not patient_message:
         return jsonify({"error": "Message not found"})
 
-    # Retrieve the patient's AES key from the database
-    patient = PatientRegisterd.query.filter_by(email=patient_message.patientEmail).first()
+    patient_email = patient_message.patientEmail
+    patient = PatientRegisterd.query.filter_by(email=patient_email).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"})
 
-    if not patient or not patient.aes_key:
-        return jsonify({"error": "Patient AES key not found or invalid"})
-
-    aes_key_hex = patient.aes_key
-    aes_key = bytes.fromhex(aes_key_hex)
+    doctor_email = patient_message.doctorEmail
+    doctor = DoctorRegisterd.query.filter_by(email=doctor_email).first()
+    if not doctor:
+        return jsonify({"error": "Doctor not found"})
 
     try:
         with open(patient_message.image_path, 'rb') as f:
             ciphertext = f.read()
 
-        # Extract IV, encrypted data, and tag from the ciphertext
-        iv = ciphertext[:12]
-        encrypted_data = ciphertext[12:-16]
-        tag = ciphertext[-16:]
+        sender_public_key_pem = patient.ecc_public_key.encode('utf-8')  # Encode the key properly
+        recipient_private_key_pem = doctor.ecc_private_key.encode('utf-8')  # Encode the key properly
+        decryption_key = generate_decryption_key(sender_public_key_pem, recipient_private_key_pem)
 
-        # Decrypt the message using AES-GCM
-        cipher = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend())
-        decryptor = cipher.decryptor()
-        start_time = perf_counter()  # Record the start time
-        decrypted_data_temp = decryptor.update(encrypted_data) + decryptor.finalize()
-        end_time = perf_counter()  # Record the end time
-        time_taken = end_time - start_time
-        time_taken_decimal = '{:.8f}'.format(time_taken)
-        print("Time taken for AES decryption:", time_taken_decimal, "seconds")
+        decrypted_data_temp = decrypt_data(ciphertext, decryption_key)
 
-        # Generate a unique filename for the decrypted image
         decrypted_filename = os.path.splitext(os.path.basename(patient_message.image_path))[0] + '_decrypted' + os.path.splitext(patient_message.image_path)[1]
         decrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], decrypted_filename)
 
         with open(decrypted_filepath, 'wb') as f:
             f.write(decrypted_data_temp)
 
-        # Return the decrypted image file as a response
         return send_file(decrypted_filepath, as_attachment=True)
 
     except Exception as e:
         return jsonify({"error": str(e)})
 
-# Helper function to perform ECC encryption
-def ecc_encrypt(selectedFile, public_key_pem):
-    try:
-        # Load the doctor's public key
-        public_key = serialization.load_pem_public_key(public_key_pem, backend=default_backend())
 
-        # Perform ECC encryption
-        ciphertext = public_key.encrypt(
-            selectedFile,
-            ec.ECIES(hashes.SHA256())
-        )
 
-        return ciphertext
-    except Exception as e:
-        return str(e)
 
-# Helper function to perform AES encryption
-def aes_encrypt(selectedFile, aes_key):
-    try:
-        # Generate random IV
-        iv = os.urandom(12)
+# Function to encrypt data using AES-GCM
+def encrypt_data(data, encryption_key):
+    iv = os.urandom(12)
+    cipher = Cipher(algorithms.AES(encryption_key), modes.GCM(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    encrypted_data = encryptor.update(data) + encryptor.finalize()
+    tag = encryptor.tag
+    ciphertext = iv + encrypted_data + tag
+    return ciphertext
 
-        #Perform AES encryption
-        cipher = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        encrypted_data = encryptor.update(selectedFile) + encryptor.finalize()
-
-        # Get the authentication tag
-        tag = encryptor.tag
-
-        # Concatenate IV, encrypted data, and tag
-        ciphertext = iv + encrypted_data + tag
-
-        return ciphertext
-    except Exception as e:
-        return str(e)
-
+# Function to generate encryption key using ECDH and HKDF
+def generate_encryption_key(sender_private_key_pem, recipient_public_key_pem):
+    sender_private_key = serialization.load_pem_private_key(sender_private_key_pem, password=None, backend=default_backend())
+    recipient_public_key = serialization.load_pem_public_key(recipient_public_key_pem, backend=default_backend())
+    
+    shared_key = sender_private_key.exchange(ec.ECDH(), recipient_public_key)
+    encryption_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'',
+        backend=default_backend()
+    ).derive(shared_key)
+    
+    return encryption_key
 
 @app.route('/sendMessage', methods=['POST'])
 def saveMessage():
@@ -224,49 +237,37 @@ def saveMessage():
     p_gender = request.form.get('p_gender') 
     doc_name = request.form.get('docName')
     doc_email = request.form.get('docEmail')
-
-    # Processing the uploaded file
+    
     selectedFile = request.files.get('message')
     if selectedFile:
-        # Retrieve the doctor's public key from the database
-        doctor = DoctorRegisterd.query.filter_by(email=doc_email).first()
-        if doctor:
-            public_key_pem = doctor.public_key.encode('utf-8')
-            try:
-                # Determine whether to use ECC or AES encryption based on the index
-                if len(selectedFile.read()) % 2 == 0:
-                    # Encrypt using ECC on even-indexed fragments
-                    ciphertext = ecc_encrypt(selectedFile.read(), public_key_pem)
-                else:
-                    # Retrieve the patient's AES key from the database
-                    patient = PatientRegisterd.query.filter_by(email=p_email).first()
-                    if patient and patient.aes_key:
-                        aes_key = bytes.fromhex(patient.aes_key)
-                        # Encrypt using AES on odd-indexed fragments
-                        ciphertext = aes_encrypt(selectedFile.read(), aes_key)
-                    else:
-                        return jsonify({"error": "Patient AES key not found or invalid"})
+        sender = PatientRegisterd.query.filter_by(email=p_email).first()
+        if sender:
+            sender_private_key_pem = sender.ecc_private_key.encode('utf-8')
+            recipient = DoctorRegisterd.query.filter_by(email=doc_email).first()
+            if recipient:
+                recipient_public_key_pem = recipient.ecc_public_key.encode('utf-8')
+                encryption_key = generate_encryption_key(sender_private_key_pem, recipient_public_key_pem)
+                encrypted_data = encrypt_data(selectedFile.read(), encryption_key)
                 
-                # Generate a unique filename for the encrypted fragment
+                # Save the encrypted message (image) in the uploads folder
                 filename = secure_filename(selectedFile.filename)
                 encrypted_filename = os.path.splitext(filename)[0] + '_encrypted' + os.path.splitext(filename)[1]
                 encrypted_filepath = os.path.join(app.config['UPLOAD_FOLDER'], encrypted_filename)
-                
-                # Save the encrypted fragment
                 with open(encrypted_filepath, 'wb') as f:
-                    f.write(ciphertext)
+                    f.write(encrypted_data)
                     
-                # Save the path of the encrypted fragment in the database
+                # Save the path of the encrypted message in the database
                 new_message = PatientMessage(patientName=p_name, patientEmail=p_email, patientAge=p_age, patientGender=p_gender, doctorName=doc_name, doctorEmail=doc_email, image_path=encrypted_filepath)
                 db.session.add(new_message)
                 db.session.commit()
                 return jsonify({"message": "Message posted successfully"})
-            except Exception as e:
-                return jsonify({"error": str(e)})
+            else:
+                return jsonify({"error": "Doctor not found"})
         else:
-            return jsonify({"error": "Doctor not found"})
+            return jsonify({"error": "Sender not found"})
     else:
         return jsonify({"error": "No file uploaded"})
+
 
 
 
@@ -309,7 +310,7 @@ def doctorRegister():
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
         
-    new_doctor = DoctorRegisterd(fname=fname,lname=lname, specialization=specialization, email=email, public_key=public_key_bytes.decode('utf-8'), private_key=private_key_bytes.decode('utf-8'), password=password)
+    new_doctor = DoctorRegisterd(fname=fname,lname=lname, specialization=specialization, email=email, ecc_public_key=public_key_bytes.decode('utf-8'), ecc_private_key=private_key_bytes.decode('utf-8'), password=password)
 
     db.session.add(new_doctor)
     db.session.commit()
@@ -360,13 +361,28 @@ def patientRegister():
     if patient:
         return jsonify({"error":"Email has already been registered"})
     
+    # Generate ECC key pair
+    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+    public_key = private_key.public_key()
+
+    # Serialize the keys
+    private_key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    public_key_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    
     # Generate a random AES key
     aes_key = os.urandom(32)  # 256-bit key (32 bytes)
 
     # Encode the AES key as a hexadecimal string for storage
     aes_key_hex = aes_key.hex()
         
-    new_patient = PatientRegisterd(username=username,age=age,gender=gender, email=email, aes_key=aes_key_hex, password=password)
+    new_patient = PatientRegisterd(username=username,age=age,gender=gender, email=email, ecc_public_key=public_key_bytes.decode('utf-8'), ecc_private_key=private_key_bytes.decode('utf-8'), aes_key=aes_key_hex, password=password)
 
     db.session.add(new_patient)
     db.session.commit()
